@@ -236,6 +236,8 @@ export const userController = {
           balance: initialBalance,
           assets: [],
         },
+        likedCoins: [],
+        bookmarkedCoins: [],
         transactions: [],
         profile: {
           verified: false,
@@ -643,6 +645,7 @@ export const userController = {
             joinDate: user.createdAt,
             lastLogin: user.lastLogin,
             totalTransactions: user.transactions?.length || 0,
+            likedCoins: user.likedCoins,
             wallet: {
               balance: wallet.balance,
               totalAssets: assets.length,

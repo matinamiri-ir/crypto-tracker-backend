@@ -95,9 +95,25 @@ router.get("/related/coin/:symbol", async (req: Request, res: Response) => {
       data: OldMarket[];
     };
 
-    const filteredOldMarket = oldMarket.data.filter((m) =>
+    const filteredOldMarket =Object.values (oldMarket.data.filter((m) =>
       setArray.has(m.symbol.toUpperCase())
-    );
+    ).reduce((acc, coin) => {
+          if (!acc[coin.baseAsset]) {
+            acc[coin.baseAsset] = {
+              base: coin.baseAsset,
+              coins: [],
+              svg_icon: coin.baseAsset_svg_icon,
+              faBase: coin.faBaseAsset,
+            };
+          }
+          acc[coin.baseAsset].coins.push(coin);
+          acc[coin.baseAsset].coins.sort((a, b) => {
+            if (a.quoteAsset === "USDT") return -1; // بیاد جلوتر
+            if (b.quoteAsset === "USDT") return 1; // بره عقب‌تر
+            return 0;
+          });
+          return acc;
+        }, {} as Record<string, { base: string; coins: OldMarket[]; svg_icon: string; faBase: string }>))
 
     res.json(filteredOldMarket);
   } catch (err) {
