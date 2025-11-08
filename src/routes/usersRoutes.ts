@@ -34,7 +34,7 @@ router.post("/me/sell", auth, validateTransaction, userController.sellCrypto);
 router.post("/coin/like", auth,userController.toggleLikeCoin);
 router.post("/coin/bookmark", auth, userController.toggleBookmarkCoin);
 // 🌐 Market routes
-router.get("/markets", auth, userController.getAllMarkets);
+router.get("/markets", userController.getAllMarkets);
 router.get("/markets/:coin", auth, userController.getCurrencyInfo);
 
 // 🎯 Admin / Ownership protected routes
