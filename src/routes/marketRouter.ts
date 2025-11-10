@@ -8,7 +8,7 @@ import type {
   CryptocurrencyResponse,
   CryptocurrencyData,
 } from "../types/markets";
-import { success } from "zod";
+import { success, symbol } from "zod";
 
 const router = express.Router();
 
@@ -104,6 +104,44 @@ router.get("/markets", async (req: Request, res: Response) => {
         message: `No market found for base ${base}`,
       });
     }
+  } catch (err) {
+    console.error("❌ Error fetching markets:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch markets",
+    });
+  }
+});
+router.get("/market/:symbol", async (req: Request, res: Response) => {
+  const { symbol } = req.params;
+  if (!symbol) {
+    return res.status(400).json({ message: "لطفا سمبل ارز را وارد کنید" });
+  }
+  try {
+    const [market, oldMarket] = await Promise.all([
+      axios.get<MarketResponse>("https://api.wallex.ir/hector/web/v1/markets"),
+      axios.get<OldMarketsResponse>("https://api.wallex.ir/v1/markets"),
+    ]);
+    const newMarkets: Market[] = market.data.result.markets || [];
+    const oldMarkets: OldMarket[] = Object.values(
+      oldMarket.data.result.symbols || {}
+    );
+
+    const symbolledNm = newMarkets.find((market) => market.symbol === symbol);
+    const symbolledOm = oldMarkets.find((coin) => coin.symbol === symbol);
+    if (!symbolledNm && !symbolledOm) {
+      return res.status(404).json({
+        success: false,
+        message: "ارز مورد نظر یافت نشد",
+      });
+    }
+    res.json({
+      success: true,
+      data: {
+        nmSymbol: symbolledNm,
+        omSymbol: symbolledOm,
+      },
+    });
   } catch (err) {
     console.error("❌ Error fetching markets:", err);
     res.status(500).json({
