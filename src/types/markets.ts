@@ -1,5 +1,4 @@
 export interface MarketResponse {
-  
   result: {
     markets: Market[];
   };
