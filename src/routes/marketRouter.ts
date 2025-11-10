@@ -11,20 +11,73 @@ import type {
 
 const router = express.Router();
 
+function groupByBase<T extends { [key: string]: any }>(
+  items: T[],
+  key: string
+): Record<string, T[]> {
+  return items.reduce((acc, item) => {
+    const base = item[key];
+    if (!acc[base]) acc[base] = [];
+    acc[base].push(item);
+    return acc;
+  }, {} as Record<string, T[]>);
+}
+
 // 📈 Markets
 router.get("/markets", async (req: Request, res: Response) => {
   try {
-    const response = (await axios.get(
-      "https://api.wallex.ir/hector/web/v1/markets"
-    )) as {
-      data: MarketResponse;
-    };
+    const urls = [
+      { name: "v1/market", url: "https://api.wallex.ir/hector/web/v1/markets" },
+      { name: "old/market", url: "https://api.wallex.ir/v1/markets" },
+    ];
 
-    const marketsArray: Market[] = Object.values(response.data.result.markets);
-    res.json(marketsArray);
+    // هم‌زمان هر دو API رو می‌گیریم
+    const [newMarketRes, oldMarketRes] = await Promise.all([
+      axios.get<MarketResponse>(urls[0].url),
+      axios.get<OldMarketsResponse>(urls[1].url),
+    ]);
+
+    const newMarkets: Market[] = newMarketRes.data.result.markets;
+    const oldMarkets: OldMarket[] = Object.values(
+      oldMarketRes.data.result.symbols
+    );
+
+    const groupedNew = groupByBase(newMarkets, "base_asset");
+    const groupedOld = groupByBase(oldMarkets, "baseAsset");
+
+const result = Object.keys(groupedNew).map((base) => {
+  const newM = groupedNew[base];
+  const oldM = groupedOld[base] || [];
+
+  const price: { toman?: number; tether?: number } = {};
+  newM.forEach((m) => {
+    const p = parseFloat(m.price);
+    if (m.is_tmn_based) price.toman = p;
+    if (m.is_usdt_based) price.tether = p;
+  });
+
+  const svg = oldM[0]?.baseAsset_svg_icon;
+
+  return {
+    base,
+    newMarkets: newM,
+    oldMarkets: oldM,
+    price,
+    svg,
+  }});
+
+    res.json({
+      success: true,
+      message: "Markets grouped by base successfully",
+      count: result.length,
+      data: result,
+    });
   } catch (err) {
-    console.error("Error fetching markets:", err);
-    res.status(500).json({ error: "Failed to fetch markets" });
+    console.error("❌ Error fetching markets:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch markets",
+    });
   }
 });
 
@@ -60,8 +113,6 @@ router.get("/currencies/stats", async (req: Request, res: Response) => {
   }
 });
 
-
-
 // 🔗 Related Coins
 router.get("/related/coin/:symbol", async (req: Request, res: Response) => {
   const { symbol } = req.params;
@@ -95,9 +146,10 @@ router.get("/related/coin/:symbol", async (req: Request, res: Response) => {
       data: OldMarket[];
     };
 
-    const filteredOldMarket =Object.values (oldMarket.data.filter((m) =>
-      setArray.has(m.symbol.toUpperCase())
-    ).reduce((acc, coin) => {
+    const filteredOldMarket = Object.values(
+      oldMarket.data
+        .filter((m) => setArray.has(m.symbol.toUpperCase()))
+        .reduce((acc, coin) => {
           if (!acc[coin.baseAsset]) {
             acc[coin.baseAsset] = {
               base: coin.baseAsset,
@@ -113,7 +165,8 @@ router.get("/related/coin/:symbol", async (req: Request, res: Response) => {
             return 0;
           });
           return acc;
-        }, {} as Record<string, { base: string; coins: OldMarket[]; svg_icon: string; faBase: string }>))
+        }, {} as Record<string, { base: string; coins: OldMarket[]; svg_icon: string; faBase: string }>)
+    );
 
     res.json(filteredOldMarket);
   } catch (err) {
