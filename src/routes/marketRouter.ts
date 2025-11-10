@@ -26,14 +26,14 @@ function groupByBase<T extends { [key: string]: any }>(
 
 // 📈 Markets
 router.get("/markets", async (req: Request, res: Response) => {
-  const base = req.query.base;
+  const base = req.query.base?.toString().toUpperCase(); // normalize base name
   try {
     const urls = [
       { name: "v1/market", url: "https://api.wallex.ir/hector/web/v1/markets" },
       { name: "old/market", url: "https://api.wallex.ir/v1/markets" },
     ];
 
-    // هم‌زمان هر دو API رو می‌گیریم
+    // گرفتن هر دو API هم‌زمان
     const [newMarketRes, oldMarketRes] = await Promise.all([
       axios.get<MarketResponse>(urls[0].url),
       axios.get<OldMarketsResponse>(urls[1].url),
@@ -48,8 +48,22 @@ router.get("/markets", async (req: Request, res: Response) => {
     const groupedOld = groupByBase(oldMarkets, "baseAsset");
 
     const result = Object.keys(groupedNew).map((base) => {
-      const newM = groupedNew[base];
-      const oldM = groupedOld[base] || [];
+      let newM = groupedNew[base];
+      let oldM = groupedOld[base] || [];
+
+      newM = newM.sort((a, b) => {
+        if (a.is_tmn_based && !b.is_tmn_based) return -1;
+        if (!a.is_tmn_based && b.is_tmn_based) return 1;
+        return 0;
+      });
+
+      oldM = oldM.sort((a, b) => {
+        const aTmn = a.symbol?.includes("TMN");
+        const bTmn = b.symbol?.includes("TMN");
+        if (aTmn && !bTmn) return -1;
+        if (!aTmn && bTmn) return 1;
+        return 0;
+      });
 
       const price: { toman?: number; tether?: number } = {};
       newM.forEach((m) => {
@@ -68,19 +82,26 @@ router.get("/markets", async (req: Request, res: Response) => {
         svg,
       };
     });
-    const coinResult = result.find((coin) => base === coin.base);
+
+    const coinResult = result.find((coin) => coin.base === base);
+
     if (!base) {
       res.json({
         success: true,
-        message: "Markets grouped by base successfully",
+        message: "Markets grouped and sorted successfully",
         count: result.length,
         data: result,
       });
-    } else {
+    } else if (coinResult) {
       res.json({
         success: true,
-        message: "Markets grouped by base successfully",
+        message: `Market for ${base} fetched successfully`,
         data: coinResult,
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        message: `No market found for base ${base}`,
       });
     }
   } catch (err) {
