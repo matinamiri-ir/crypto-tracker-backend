@@ -26,8 +26,9 @@ router.get(
 
       res.cookie("token", token, {
         httpOnly: true,
-        secure: false, // چون توی localhost SSL نداری
-        sameSite: "lax",
+        secure: false, 
+        sameSite: "none",
+        maxAge: 7 * 24 * 60 * 60 * 1000, 
       });
 
       res.redirect("http://localhost:5173/dashboard");
