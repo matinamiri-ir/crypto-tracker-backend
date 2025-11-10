@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import session from "express-session";
-import passport from "./config/passport"; 
+import passport from "./config/passport";
 import commentsRouter from "./routes/comments";
 import userRoutes from "./routes/usersRoutes";
 import authRouter from "./routes/authRouter";
@@ -15,7 +15,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"], // یا هر دامنه‌ای که فرانت رویشه
+    origin: "http://localhost:5173", // یا هر دامنه‌ای که فرانت رویشه
     credentials: true,
   })
 );
@@ -23,13 +23,16 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-// 🔐 سشن برای OAuth
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "matin@#!384@#$%",
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false, httpOnly: true },
+    cookie: {
+      secure: true, 
+      sameSite: "none", 
+      httpOnly: true,
+    },
   })
 );
 

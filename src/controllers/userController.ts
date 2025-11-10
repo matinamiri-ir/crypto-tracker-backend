@@ -256,19 +256,28 @@ export const userController = {
         { expiresIn: "7d" }
       );
 
-      res.status(201).json({
-        success: true,
-        message: "ثبت نام با موفقیت انجام شد",
-        data: {
-          user: {
-            id: user._id,
-            username: user.username,
-            email: user.email,
-            wallet: user.wallet,
+      const cookieOptions = {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none" as const,
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 روز
+      };
+
+      res
+        .cookie("token", token, cookieOptions)
+        .status(201)
+        .json({
+          success: true,
+          message: "ثبت نام با موفقیت انجام شد",
+          data: {
+            user: {
+              id: user._id,
+              username: user.username,
+              email: user.email,
+              wallet: user.wallet,
+            },
           },
-          token,
-        },
-      });
+        });
     } catch (err) {
       console.error("Register error:", err);
       res.status(500).json({
@@ -325,9 +334,16 @@ export const userController = {
         { expiresIn: "7d" }
       );
 
-      res.json({
+      const cookieOptions = {
+        httpOnly: true,
+        secure: true,
+        sameSite: "none" as const,
+        maxAge: 7 * 24 * 60 * 60 * 1000, //
+      };
+
+      res.cookie("token", token, cookieOptions).json({
         success: true,
-        message: "لاگین موفق",
+        message: "ورود موفقیت‌آمیز",
         data: {
           user: {
             id: user._id,
@@ -336,7 +352,6 @@ export const userController = {
             wallet: user.wallet,
             lastLogin: user.lastLogin,
           },
-          token,
         },
       });
     } catch (err) {
