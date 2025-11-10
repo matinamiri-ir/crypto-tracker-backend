@@ -8,6 +8,7 @@ import type {
   CryptocurrencyResponse,
   CryptocurrencyData,
 } from "../types/markets";
+import { success } from "zod";
 
 const router = express.Router();
 
@@ -25,6 +26,7 @@ function groupByBase<T extends { [key: string]: any }>(
 
 // 📈 Markets
 router.get("/markets", async (req: Request, res: Response) => {
+  const base = req.query.base;
   try {
     const urls = [
       { name: "v1/market", url: "https://api.wallex.ir/hector/web/v1/markets" },
@@ -66,13 +68,21 @@ router.get("/markets", async (req: Request, res: Response) => {
         svg,
       };
     });
-
-    res.json({
-      success: true,
-      message: "Markets grouped by base successfully",
-      count: result.length,
-      data: result,
-    });
+    const coinResult = result.find((coin) => base === coin.base);
+    if (!base) {
+      res.json({
+        success: true,
+        message: "Markets grouped by base successfully",
+        count: result.length,
+        data: result,
+      });
+    } else {
+      res.json({
+        success: true,
+        message: "Markets grouped by base successfully",
+        data: coinResult,
+      });
+    }
   } catch (err) {
     console.error("❌ Error fetching markets:", err);
     res.status(500).json({
