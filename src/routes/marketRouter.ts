@@ -45,26 +45,27 @@ router.get("/markets", async (req: Request, res: Response) => {
     const groupedNew = groupByBase(newMarkets, "base_asset");
     const groupedOld = groupByBase(oldMarkets, "baseAsset");
 
-const result = Object.keys(groupedNew).map((base) => {
-  const newM = groupedNew[base];
-  const oldM = groupedOld[base] || [];
+    const result = Object.keys(groupedNew).map((base) => {
+      const newM = groupedNew[base];
+      const oldM = groupedOld[base] || [];
 
-  const price: { toman?: number; tether?: number } = {};
-  newM.forEach((m) => {
-    const p = parseFloat(m.price);
-    if (m.is_tmn_based) price.toman = p;
-    if (m.is_usdt_based) price.tether = p;
-  });
+      const price: { toman?: number; tether?: number } = {};
+      newM.forEach((m) => {
+        const p = parseFloat(m.price);
+        if (m.is_tmn_based) price.toman = p;
+        if (m.is_usdt_based) price.tether = p;
+      });
 
-  const svg = oldM[0]?.baseAsset_svg_icon;
+      const svg = oldM[0]?.baseAsset_svg_icon;
 
-  return {
-    base,
-    newMarkets: newM,
-    oldMarkets: oldM,
-    price,
-    svg,
-  }});
+      return {
+        base,
+        newMarkets: newM,
+        oldMarkets: oldM,
+        price,
+        svg,
+      };
+    });
 
     res.json({
       success: true,
@@ -120,19 +121,19 @@ router.get("/related/coin/:symbol", async (req: Request, res: Response) => {
 
   try {
     const resp = (await axios.get(
-      "https://crypto-tracker-backend-xt56.onrender.com/api/markets"
+      "https://api.wallex.ir/hector/web/v1/markets"
     )) as {
-      data: Market[];
+      data: MarketResponse;
     };
-
-    const current_coin = resp.data.find(
-      (coin) => coin.symbol.toUpperCase() === symbol.toUpperCase()
+    const markets = resp.data?.result.markets;
+    const current_coin = markets.find(
+      (coin: Market) => coin.symbol.toUpperCase() === symbol.toUpperCase()
     );
     if (!current_coin) return res.status(404).json({ error: "Coin not found" });
 
-    const related = resp.data
+    const related = markets
       .filter(
-        (coin) =>
+        (coin: Market) =>
           coin.symbol.toUpperCase() !== symbol.toUpperCase() &&
           coin.categories?.some((cat) => current_coin.categories.includes(cat))
       )
