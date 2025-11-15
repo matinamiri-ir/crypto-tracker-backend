@@ -7,7 +7,7 @@ import { customApiService, MarketPriceInfo } from "../services/customAPI";
 import { z } from "zod";
 import NodeCache from "node-cache";
 import mongoose from "mongoose";
-
+import { getUsdtRate, convertUsdtToToman } from "../services/currencyService";
 // Cache configuration
 const priceCache = new NodeCache({ stdTTL: 10 });
 
@@ -22,7 +22,8 @@ const registerSchema = z.object({
   username: z.string().min(3).max(30).optional(),
   email: z.string().email(),
   password: z.string().min(6),
-  initialBalance: z.number().min(0).max(1_000_000).optional().default(10000),
+  initialBalanceTMN: z.number().min(0).max(1_000_000).optional().default(0),
+  initialBalanceUSDT: z.number().min(0).max(1_000_000).optional().default(0),
 });
 
 const loginSchema = z.object({
@@ -34,6 +35,7 @@ const transactionSchema = z.object({
   coin: z.string().min(1).max(10),
   amount: z.number().positive().max(1_000_000),
   price: z.number().positive().max(1_000_000_000),
+  currency: z.enum(["TMN", "USDT"]),
 });
 
 const paginationSchema = z.object({
@@ -53,6 +55,18 @@ interface ApiResponse<T = any> {
   data?: T;
 }
 
+interface BalanceBreakdown {
+  tmn: number;
+  usdt: number;
+  usdtInToman: number;
+  totalInToman: number;
+}
+
+interface ExchangeRateInfo {
+  usdtToToman: number;
+  lastUpdated: string;
+}
+
 interface PortfolioData {
   totalValue: number;
   cashBalance: number;
@@ -60,12 +74,14 @@ interface PortfolioData {
   assets: UserAssetWithPrice[];
   profitLoss: number;
   profitLossPercentage: number;
-  currency: string;
+  currency: "TMN";
   performance: {
     totalTransactions: number;
     totalTrades: number;
     successRate: string;
   };
+  balanceBreakdown: BalanceBreakdown;
+  exchangeRate: ExchangeRateInfo;
 }
 
 interface UserAssetWithPrice extends IAsset {
@@ -214,7 +230,13 @@ export const userController = {
         return;
       }
 
-      const { username, email, password, initialBalance } = parsed.data;
+      const {
+        username,
+        email,
+        password,
+        initialBalanceTMN,
+        initialBalanceUSDT,
+      } = parsed.data;
 
       const existingUser = await User.findOne({ email });
       if (existingUser) {
@@ -233,7 +255,10 @@ export const userController = {
         email,
         password: hashedPassword,
         wallet: {
-          balance: initialBalance,
+          balance: {
+            tmn: initialBalanceTMN,
+            usdt: initialBalanceUSDT,
+          },
           assets: [],
         },
         likedCoins: [],
@@ -374,38 +399,38 @@ export const userController = {
         return;
       }
 
-      const { coin, amount, price } = parsed.data;
+      const { coin, amount, price, currency } = parsed.data; // 🆕 currency اضافه شد
       const user = req.user;
       const normalizedCoin = coin.toUpperCase();
       const totalCost = amount * price;
 
-      if (user.wallet.balance < totalCost) {
+      const balanceKey = currency.toLowerCase() as "tmn" | "usdt"; // 🆕
+
+      // بررسی موجودی بر اساس واحد پولی
+      if (user.wallet.balance[balanceKey] < totalCost) {
         res.status(400).json({
           success: false,
-          message: "موجودی کافی نیست",
-          data: { required: totalCost, current: user.wallet.balance },
+          message: `موجودی ${currency} کافی نیست`,
+          data: {
+            required: totalCost,
+            current: user.wallet.balance[balanceKey],
+            currency,
+          },
         });
         return;
       }
 
       await executeWithTransaction(async (session) => {
-        user.wallet.balance -= totalCost;
-        const existingAsset = user.wallet.assets.find(
-          (a: IAsset) => a.coin === normalizedCoin
-        );
-        if (existingAsset) existingAsset.amount += amount;
-        else user.wallet.assets.push({ coin: normalizedCoin, amount });
+        // استفاده از متد addTransaction جدید مدل
+        await user.addTransaction({
+          coin: normalizedCoin,
+          amount,
+          price,
+          type: "buy",
+          currency, // 🆕
+          date: new Date(),
+        });
 
-        await user.addTransaction(
-          {
-            coin: normalizedCoin,
-            amount,
-            price,
-            type: "buy",
-            date: new Date(),
-          },
-          session
-        );
         await user.save({ session });
       });
 
@@ -413,20 +438,18 @@ export const userController = {
 
       res.json({
         success: true,
-        message: `خرید ${amount} ${coin} با موفقیت انجام شد`,
+        message: `خرید ${amount} ${coin} با ${currency} با موفقیت انجام شد`,
         data: {
           newBalance: user.wallet.balance,
           updatedAssets: user.wallet.assets,
         },
       });
-      return; // ⚡ بدون return res.json(...)
     } catch (err) {
       console.error(err);
       res.status(500).json({ success: false, message: "خطا در انجام خرید" });
     }
   },
 
-  // 💸 فروش ارز
   async sellCrypto(req: AuthRequest, res: Response): Promise<void> {
     try {
       const parsed = transactionSchema.safeParse(req.body);
@@ -438,7 +461,7 @@ export const userController = {
         return;
       }
 
-      const { coin, amount, price } = parsed.data;
+      const { coin, amount, price, currency } = parsed.data; // 🆕 currency اضافه شد
       const user = req.user;
       const normalizedCoin = coin.toUpperCase();
 
@@ -455,24 +478,16 @@ export const userController = {
       }
 
       await executeWithTransaction(async (session) => {
-        asset.amount -= amount;
-        user.wallet.balance += amount * price;
-        if (asset.amount <= 0) {
-          user.wallet.assets = user.wallet.assets.filter(
-            (a: IAsset) => a.coin !== normalizedCoin
-          );
-        }
+        // استفاده از متد addTransaction جدید مدل
+        await user.addTransaction({
+          coin: normalizedCoin,
+          amount,
+          price,
+          type: "sell",
+          currency, // 🆕
+          date: new Date(),
+        });
 
-        await user.addTransaction(
-          {
-            coin: normalizedCoin,
-            amount,
-            price,
-            type: "sell",
-            date: new Date(),
-          },
-          session
-        );
         await user.save({ session });
       });
 
@@ -480,13 +495,12 @@ export const userController = {
 
       res.json({
         success: true,
-        message: `فروش ${amount} ${coin} با موفقیت انجام شد`,
+        message: `فروش ${amount} ${coin} با دریافت ${currency} با موفقیت انجام شد`,
         data: {
           newBalance: user.wallet.balance,
           updatedAssets: user.wallet.assets,
         },
       });
-      return; // ⚡ همینطور بدون return res.json(...)
     } catch (err) {
       console.error(err);
       res.status(500).json({ success: false, message: "خطا در انجام فروش" });
@@ -502,60 +516,88 @@ export const userController = {
       if (!portfolioData) {
         const assets = user.wallet.assets as IAsset[];
 
+        // گرفتن نرخ لحظه‌ای تتر از سرویس شما
+        const usdtRate = await getUsdtRate();
+        const usdtInToman = user.wallet.balance.usdt * usdtRate;
+        const totalCashInToman = user.wallet.balance.tmn + usdtInToman;
+
         if (assets.length === 0) {
+          const initialBalance = 10000; // مقدار اولیه فقط تومان بود
+
           portfolioData = {
-            totalValue: user.wallet.balance,
-            cashBalance: user.wallet.balance,
+            totalValue: totalCashInToman,
+            cashBalance: totalCashInToman,
             assetsValue: 0,
             assets: [],
-            profitLoss: user.wallet.balance - 10000,
-            profitLossPercentage: ((user.wallet.balance - 10000) / 10000) * 100,
-            currency: "USD",
+            profitLoss: totalCashInToman - initialBalance,
+            profitLossPercentage:
+              ((totalCashInToman - initialBalance) / initialBalance) * 100,
+            currency: "TMN",
             performance: {
               totalTransactions: user.transactions.length,
               totalTrades: user.transactions.length,
               successRate: calculateSuccessRate(user.transactions),
+            },
+            balanceBreakdown: {
+              tmn: user.wallet.balance.tmn,
+              usdt: user.wallet.balance.usdt,
+              usdtInToman: usdtInToman,
+              totalInToman: totalCashInToman,
+            },
+            exchangeRate: {
+              usdtToToman: usdtRate,
+              lastUpdated: new Date().toISOString(),
             },
           };
         } else {
           const coins = [...new Set(assets.map((a) => a.coin))];
           const marketPrices = await customApiService.getMultiplePrices(coins);
 
-          let totalAssetsValue = 0;
+          let totalAssetsValueTMN = 0;
           const assetsWithValue: UserAssetWithPrice[] = assets.map((asset) => {
             const marketInfo = marketPrices[asset.coin];
             const currentPrice = marketInfo?.lastPrice || 0;
             const valueInToman = asset.amount * currentPrice;
-            const valueInDollar = valueInToman / 500000;
 
-            totalAssetsValue += valueInDollar;
+            totalAssetsValueTMN += valueInToman;
 
             return {
               ...asset,
               marketInfo: marketInfo || null,
               valueInToman: Math.round(valueInToman),
-              valueInDollar: formatCurrency(valueInDollar),
+              valueInDollar: valueInToman / usdtRate,
               change24h: marketInfo?.change24h || 0,
               totalChange: marketInfo ? marketInfo.change24h * asset.amount : 0,
             };
           });
 
-          const totalValue = user.wallet.balance + totalAssetsValue;
-          const profitLoss = totalValue - 10000;
-          const profitLossPercentage = (profitLoss / 10000) * 100;
+          const totalValueTMN = totalCashInToman + totalAssetsValueTMN;
+          const initialBalance = 10000;
+          const profitLoss = totalValueTMN - initialBalance;
+          const profitLossPercentage = (profitLoss / initialBalance) * 100;
 
           portfolioData = {
-            totalValue: formatCurrency(totalValue),
-            cashBalance: user.wallet.balance,
-            assetsValue: formatCurrency(totalAssetsValue),
+            totalValue: formatCurrency(totalValueTMN),
+            cashBalance: formatCurrency(totalCashInToman),
+            assetsValue: formatCurrency(totalAssetsValueTMN),
             assets: assetsWithValue,
             profitLoss: formatCurrency(profitLoss),
             profitLossPercentage: formatCurrency(profitLossPercentage),
-            currency: "USD",
+            currency: "TMN",
             performance: {
               totalTransactions: user.transactions.length,
               totalTrades: user.transactions.length,
               successRate: calculateSuccessRate(user.transactions),
+            },
+            balanceBreakdown: {
+              tmn: user.wallet.balance.tmn,
+              usdt: user.wallet.balance.usdt,
+              usdtInToman: usdtInToman,
+              totalInToman: totalCashInToman,
+            },
+            exchangeRate: {
+              usdtToToman: usdtRate,
+              lastUpdated: new Date().toISOString(),
             },
           };
         }
@@ -575,7 +617,6 @@ export const userController = {
       });
     }
   },
-
   // 📜 تاریخچه تراکنش‌ها
   async getTransactions(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -662,10 +703,11 @@ export const userController = {
             totalTransactions: user.transactions?.length || 0,
             likedCoins: user.likedCoins,
             wallet: {
-              balance: wallet.balance,
+              balance: user.wallet.balance, // 🆕 حالا شامل {tmn, usdt} هست
               totalAssets: assets.length,
               totalValue:
-                wallet.balance +
+                user.wallet.balance.tmn +
+                user.wallet.balance.usdt +
                 assets.reduce((total, asset) => total + asset.amount, 0),
             },
           },
