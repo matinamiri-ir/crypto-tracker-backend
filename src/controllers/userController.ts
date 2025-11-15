@@ -22,7 +22,7 @@ const registerSchema = z.object({
   username: z.string().min(3).max(30).optional(),
   email: z.string().email(),
   password: z.string().min(6),
-  initialBalanceTMN: z.number().min(0).max(1_000_000).optional().default(0),
+  initialBalanceTMN: z.number().min(0).max(1_000_000_000_000).optional().default(0),
   initialBalanceUSDT: z.number().min(0).max(1_000_000).optional().default(0),
 });
 
@@ -34,7 +34,7 @@ const loginSchema = z.object({
 const transactionSchema = z.object({
   coin: z.string().min(1).max(10),
   amount: z.number().positive().max(1_000_000),
-  price: z.number().positive().max(1_000_000_000),
+  price: z.number().positive().max(1_000_000_000_000),
   currency: z.enum(["TMN", "USDT"]),
 });
 
