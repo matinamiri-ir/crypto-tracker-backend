@@ -406,22 +406,9 @@ export const userController = {
 
       const balanceKey = currency.toLowerCase() as "tmn" | "usdt"; // 🆕
 
-      // بررسی موجودی بر اساس واحد پولی
-      if (user.wallet.balance[balanceKey] < totalCost) {
-        res.status(400).json({
-          success: false,
-          message: `موجودی ${currency} کافی نیست`,
-          data: {
-            required: totalCost,
-            current: user.wallet.balance[balanceKey],
-            currency,
-          },
-        });
-        return;
-      }
+
 
       await executeWithTransaction(async (session) => {
-        // استفاده از متد addTransaction جدید مدل
         await user.addTransaction({
           coin: normalizedCoin,
           amount,
